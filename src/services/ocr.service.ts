@@ -10,15 +10,18 @@ export class TesseractOcr implements OcrProvider {
     logger.info(`[OCR] Extracting text from ${imagePath} using Tesseract...`);
 
     try {
-      // TODO: Implement Tesseract OCR extraction
-      // 1. Use Tesseract.recognize() to process the image file
-      // 2. Extract text from languages: 'eng+spa'
-      // 3. Return the raw extracted text
-      // 4. Handle errors appropriately
-      //
-      // Hint: Tesseract.recognize(imagePath, 'eng+spa').then(result => result.data.text)
-      
-      throw new Error('TODO: Implement Tesseract OCR extraction');
+      const result = await Tesseract.recognize(imagePath, 'eng+spa', {
+        logger: (m: unknown) => logger.debug(`[Tesseract] ${JSON.stringify(m)}`)
+      });
+
+      const text = result.data.text;
+
+      if (!text || text.trim().length === 0) {
+        logger.warn(`[OCR] No text extracted from ${imagePath}`);
+        return '';
+      }
+
+      return text;
     } catch (error) {
       logger.error(`[OCR] Error extracting text: ${error}`);
       throw error;
