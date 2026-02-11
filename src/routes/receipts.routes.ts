@@ -5,7 +5,7 @@ import path from 'path';
 import { randomUUID as uuidv4 } from 'crypto';
 import { logger } from '../config/logger.js';
 import { config } from '../config/env.js';
-import { getOcrProvider } from '../services/ocr.service.js';
+import { TesseractOcr } from '../services/ocr.service.js';
 import { ReceiptParser } from '../services/parser.service.js';
 import { ReceiptResult } from '../types/receipt.js';
 import { AppError } from '../utils/errors.js';
@@ -49,7 +49,7 @@ router.post('/api/receipts', upload.single('file'), async (req: Request, res: Re
     const id = uuidv4();
 
     // 1. OCR Extraction
-    const ocrProvider = getOcrProvider(config.ocrProvider);
+    const ocrProvider = new TesseractOcr();
     const rawText = await ocrProvider.extractText(filePath);
 
     // 2. Parse Text
@@ -71,10 +71,15 @@ router.post('/api/receipts', upload.single('file'), async (req: Request, res: Re
       logger.error(`[Receipt] Failed to delete temp file ${filePath}: ${err}`);
     });
 
+    // Estadísticas de procesamiento
+    logger.info(`[Receipt] Extraction completed - Amount: ${receipt.data.amount || 'N/A'}, Vendor: ${receipt.data.vendorName || 'N/A'}`);
+
     logger.info(`[Receipt] Processed receipt ${id}`);
     res.json(receipt);
-  } catch (error) {
+  } catch (error: any) {
     logger.error(`[Receipt] Error uploading receipt: ${error}`);
+    // Log detailed error to file for debugging
+    await fs.appendFile('server_errors.log', `[${new Date().toISOString()}] ${error.stack || error}\n`);
 
     // Cleanup file if error occurred
     if (req.file) {
