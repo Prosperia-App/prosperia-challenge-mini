@@ -2,10 +2,10 @@ import express, { Request, Response } from 'express';
 import multer from 'multer';
 import fs from 'fs/promises';
 import path from 'path';
-import { v4 as uuidv4 } from 'crypto';
+import { randomUUID as uuidv4 } from 'crypto';
 import { logger } from '../config/logger.js';
 import { config } from '../config/env.js';
-import { getOcrProvider } from '../services/ocr.service.js';
+import { TesseractOcr } from '../services/ocr.service.js';
 import { ReceiptParser } from '../services/parser.service.js';
 import { ReceiptResult } from '../types/receipt.js';
 import { AppError } from '../utils/errors.js';
@@ -45,18 +45,47 @@ router.post('/api/receipts', upload.single('file'), async (req: Request, res: Re
       throw new AppError(400, 'No file uploaded');
     }
 
-    // TODO: Implement the receipt upload logic
-    // Steps:
-    // 1. Generate a unique ID for the receipt
-    // 2. Get OCR provider
-    // 3. Extract text from the uploaded file
-    // 4. Parse the text to extract receipt data
-    // 5. Store in the receipts map
-    // 6. Return the result
+    const { path: filePath, originalname } = req.file;
+    const id = uuidv4();
 
-    res.status(501).json({ error: 'TODO: Implement receipt upload endpoint' });
-  } catch (error) {
+    // 1. OCR Extraction
+    const ocrProvider = new TesseractOcr();
+    const rawText = await ocrProvider.extractText(filePath);
+
+    // 2. Parse Text
+    const parser = new ReceiptParser();
+    const parsedData = parser.parse(rawText);
+
+    // 3. Store Result
+    const receipt: ReceiptResult = {
+      id,
+      filename: originalname,
+      uploadedAt: new Date().toISOString(),
+      data: parsedData,
+    };
+
+    receipts.set(id, receipt);
+
+    // 4. Cleanup uploaded file
+    await fs.unlink(filePath).catch(err => {
+      logger.error(`[Receipt] Failed to delete temp file ${filePath}: ${err}`);
+    });
+
+    // Estadísticas de procesamiento
+    logger.info(`[Receipt] Extraction completed - Amount: ${receipt.data.amount || 'N/A'}, Vendor: ${receipt.data.vendorName || 'N/A'}`);
+
+    logger.info(`[Receipt] Processed receipt ${id}`);
+    res.json(receipt);
+  } catch (error: any) {
     logger.error(`[Receipt] Error uploading receipt: ${error}`);
+    // Log detailed error to file for debugging
+    await fs.appendFile('server_errors.log', `[${new Date().toISOString()}] ${error.stack || error}\n`);
+
+    // Cleanup file if error occurred
+    if (req.file) {
+      await fs.unlink(req.file.path).catch(() => { });
+    }
+
     const appError = error instanceof AppError ? error : new AppError(500, 'Failed to process receipt');
     res.status(appError.statusCode).json({ error: appError.message });
   }
